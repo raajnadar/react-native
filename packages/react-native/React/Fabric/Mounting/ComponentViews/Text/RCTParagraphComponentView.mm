@@ -32,6 +32,10 @@ using namespace facebook::react;
                                     frame:(CGRect)frame
                            containerFrame:(CGRect *)containerFrame;
 
+- (NSTextStorage *)textStorageForNSAttributedString:(NSAttributedString *)attributedString
+                                paragraphAttributes:(facebook::react::ParagraphAttributes)paragraphAttributes
+                                               size:(CGSize)size;
+
 @end
 
 // ParagraphTextView is an auxiliary view we set as contentView so the drawing
