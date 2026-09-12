@@ -86,6 +86,16 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
  * never performs the layout, and it never paints the text.
  */
 @interface RCTSelectableTextView : UITextView
+
+/*
+ * The paragraph as it is painted, before `RCTUnpaintedAttributedString` strips
+ * it. The text view lays the stripped copy out, so `copy:` must read the range
+ * from this string instead, or the pasteboard receives clear text with no
+ * decorations. Both strings hold the same characters, so the range maps
+ * directly from one to the other.
+ */
+@property (nonatomic, copy, nullable) NSAttributedString *sourceAttributedText;
+
 @end
 
 @implementation RCTSelectableTextView {
@@ -194,6 +204,41 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
   }
 
   [self resignFirstResponder];
+}
+
+#pragma mark - Copying
+
+/*
+ * Writes the selected range to the pasteboard as rich text and as plain text,
+ * which is what `RCTParagraphComponentView` did for the whole paragraph before
+ * selection existed. `UITextView` would otherwise copy from its own storage,
+ * and that storage carries no colour and no decorations.
+ */
+- (void)copy:(id)sender
+{
+  NSRange selectedRange = self.selectedRange;
+  NSAttributedString *sourceAttributedText = _sourceAttributedText;
+
+  if (sourceAttributedText == nil || selectedRange.length == 0 ||
+      NSMaxRange(selectedRange) > sourceAttributedText.length) {
+    [super copy:sender];
+    return;
+  }
+
+  NSAttributedString *selectedText = [sourceAttributedText attributedSubstringFromRange:selectedRange];
+  NSMutableDictionary *item = [NSMutableDictionary new];
+
+  NSData *rtf = [selectedText dataFromRange:NSMakeRange(0, selectedText.length)
+                         documentAttributes:@{NSDocumentTypeDocumentAttribute : NSRTFDTextDocumentType}
+                                      error:nil];
+
+  if (rtf) {
+    [item setObject:rtf forKey:(id)kUTTypeFlatRTFD];
+  }
+
+  [item setObject:selectedText.string forKey:(id)kUTTypeUTF8PlainText];
+
+  UIPasteboard.generalPasteboard.items = @[ item ];
 }
 
 @end
@@ -518,6 +563,8 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
 - (void)disableContextMenu
 {
   [self removeSelectableTextView];
+  // Nothing else uses it while the paragraph is not selectable.
+  _selectionLayoutManager = nil;
 }
 
 - (void)removeSelectableTextView
@@ -569,6 +616,9 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
   }
 
   _selectableTextView.frame = drawingFrame;
+  // Copy reads the range from the painted string, not from the stripped copy
+  // the text view lays out.
+  _selectableTextView.sourceAttributedText = attributedText;
 }
 
 - (BOOL)canBecomeFirstResponder
