@@ -51,17 +51,46 @@ using namespace facebook::react;
 
 #if !TARGET_OS_TV
 /*
- * A non-editable `UITextView` used to render a selectable paragraph.
+ * Strips every attribute that paints, and keeps every attribute that lays out.
+ *
+ * `RCTTextLayoutManager` draws the paragraph itself, and it draws effects UIKit
+ * knows nothing about: wavy, dotted and dashed decorations, and the pressed
+ * highlight of a nested pressable <Text>. The selection text view must lay the
+ * same glyphs out, because that is what places the selection rects, but it must
+ * not paint them. So the font, the kerning, the paragraph style and the
+ * attachments stay, and the colors, the decorations and the shadow go.
+ */
+static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attributedString)
+{
+  NSMutableAttributedString *unpainted = [attributedString mutableCopy];
+  NSRange range = NSMakeRange(0, unpainted.length);
+
+  [unpainted beginEditing];
+  [unpainted addAttribute:NSForegroundColorAttributeName value:UIColor.clearColor range:range];
+  [unpainted addAttribute:NSBackgroundColorAttributeName value:UIColor.clearColor range:range];
+  [unpainted removeAttribute:NSUnderlineStyleAttributeName range:range];
+  [unpainted removeAttribute:NSStrikethroughStyleAttributeName range:range];
+  [unpainted removeAttribute:NSShadowAttributeName range:range];
+  [unpainted endEditing];
+
+  return unpainted;
+}
+
+/*
+ * A non-editable `UITextView` that provides selection for a paragraph, and
+ * nothing else.
  *
  * It is created with the very `NSTextContainer` that `RCTTextLayoutManager`
  * measured the paragraph with, so its layout matches the measurement by
  * construction rather than by coincidence. UIKit performs the selection; it
- * never performs the layout.
+ * never performs the layout, and it never paints the text.
  */
 @interface RCTSelectableTextView : UITextView
 @end
 
-@implementation RCTSelectableTextView
+@implementation RCTSelectableTextView {
+  UITapGestureRecognizer *_dismissSelectionRecognizer;
+}
 
 - (instancetype)initWithFrame:(CGRect)frame textContainer:(NSTextContainer *)textContainer
 {
@@ -84,6 +113,87 @@ using namespace facebook::react;
     self.accessibilityElementsHidden = YES;
   }
   return self;
+}
+
+#pragma mark - Dismissing the selection
+
+/*
+ * A tap outside the text clears the selection, which is what Android does and
+ * what a user expects. Nothing else in React Native takes first responder on a
+ * tap, so without this the selection stays on screen forever.
+ */
+- (BOOL)becomeFirstResponder
+{
+  BOOL didBecomeFirstResponder = [super becomeFirstResponder];
+  if (didBecomeFirstResponder) {
+    [self _addDismissSelectionRecognizer];
+  }
+  return didBecomeFirstResponder;
+}
+
+- (BOOL)resignFirstResponder
+{
+  BOOL didResignFirstResponder = [super resignFirstResponder];
+  if (didResignFirstResponder) {
+    [self _removeDismissSelectionRecognizer];
+    self.selectedRange = NSMakeRange(0, 0);
+  }
+  return didResignFirstResponder;
+}
+
+- (void)willMoveToWindow:(UIWindow *)newWindow
+{
+  [super willMoveToWindow:newWindow];
+  if (newWindow == nil) {
+    // The recognizer holds this view, so it has to go when the view does.
+    [self _removeDismissSelectionRecognizer];
+  }
+}
+
+- (void)_addDismissSelectionRecognizer
+{
+  if (_dismissSelectionRecognizer != nil) {
+    return;
+  }
+
+  // The recognizer belongs on the topmost React Native view, and not on the
+  // window: `RCTSurfaceTouchHandler` gives way to a recognizer that sits
+  // outside the surface, so a recognizer on the window would make every touch
+  // in the application wait for this one.
+  UIView *rootView = nil;
+  for (UIView *ancestor = self.superview; ancestor != nil; ancestor = ancestor.superview) {
+    if ([ancestor isKindOfClass:[RCTViewComponentView class]]) {
+      rootView = ancestor;
+    }
+  }
+  if (rootView == nil) {
+    return;
+  }
+
+  _dismissSelectionRecognizer =
+      [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(_handleTapToDismissSelection:)];
+  // The tap still reaches the component the user tapped.
+  _dismissSelectionRecognizer.cancelsTouchesInView = NO;
+  _dismissSelectionRecognizer.delaysTouchesBegan = NO;
+  _dismissSelectionRecognizer.delaysTouchesEnded = NO;
+  [rootView addGestureRecognizer:_dismissSelectionRecognizer];
+}
+
+- (void)_removeDismissSelectionRecognizer
+{
+  [_dismissSelectionRecognizer.view removeGestureRecognizer:_dismissSelectionRecognizer];
+  _dismissSelectionRecognizer = nil;
+}
+
+- (void)_handleTapToDismissSelection:(UITapGestureRecognizer *)recognizer
+{
+  // A tap on the text itself belongs to the text view, which moves or clears
+  // the selection on its own.
+  if ([self pointInside:[recognizer locationInView:self] withEvent:nil]) {
+    return;
+  }
+
+  [self resignFirstResponder];
 }
 
 @end
@@ -248,7 +358,10 @@ using namespace facebook::react;
 #if !TARGET_OS_TV
   const auto &paragraphProps = static_cast<const ParagraphProps &>(*_props);
   if (paragraphProps.isSelectable) {
-    [self updateSelectableTextViewWithFrame:RCTCGRectFromRect(_layoutMetrics.getContentFrame())];
+    // `drawingFrame` is the frame `RCTParagraphTextView` draws the glyphs into,
+    // compression adjustment included. The selection must use the same frame,
+    // or the selection rects sit away from the glyphs they select.
+    [self updateSelectableTextViewWithDrawingFrame:drawingFrame];
   }
 #endif
 }
@@ -404,11 +517,15 @@ using namespace facebook::react;
 
 - (void)disableContextMenu
 {
+  [self removeSelectableTextView];
+}
+
+- (void)removeSelectableTextView
+{
   [_selectableTextView removeFromSuperview];
   _selectableTextView = nil;
   _selectionRenderedText = nil;
   _selectionRenderedSize = CGSizeZero;
-  _textView.hidden = NO;
 }
 
 /*
@@ -416,38 +533,42 @@ using namespace facebook::react;
  * container at initialisation, so it is rebuilt only when the text or the
  * available size actually changes.
  */
-- (void)updateSelectableTextViewWithFrame:(CGRect)contentFrame
+- (void)updateSelectableTextViewWithDrawingFrame:(CGRect)drawingFrame
 {
   NSAttributedString *attributedText = self.attributedText;
-  if (attributedText == nil || CGRectIsEmpty(contentFrame)) {
-    [_selectableTextView removeFromSuperview];
-    _selectableTextView = nil;
-    _selectionRenderedText = nil;
-    _textView.hidden = NO;
+  if (attributedText.length == 0 || CGRectIsEmpty(drawingFrame)) {
+    [self removeSelectableTextView];
     return;
   }
 
   BOOL needsRebuild = _selectableTextView == nil ||
       ![attributedText isEqualToAttributedString:_selectionRenderedText] ||
-      !CGSizeEqualToSize(contentFrame.size, _selectionRenderedSize);
+      !CGSizeEqualToSize(drawingFrame.size, _selectionRenderedSize);
 
   if (needsRebuild) {
-    NSTextStorage *textStorage = [_selectionLayoutManager textStorageForNSAttributedString:attributedText
-                                                                       paragraphAttributes:_paragraphAttributes
-                                                                                      size:contentFrame.size];
+    NSTextStorage *textStorage =
+        [_selectionLayoutManager textStorageForNSAttributedString:RCTUnpaintedAttributedString(attributedText)
+                                              paragraphAttributes:_paragraphAttributes
+                                                             size:drawingFrame.size];
     NSTextContainer *textContainer = textStorage.layoutManagers.firstObject.textContainers.firstObject;
 
     [_selectableTextView removeFromSuperview];
-    _selectableTextView = [[RCTSelectableTextView alloc] initWithFrame:contentFrame textContainer:textContainer];
-    [self addSubview:_selectableTextView];
+    _selectableTextView = [[RCTSelectableTextView alloc] initWithFrame:drawingFrame textContainer:textContainer];
+    // Under the drawn paragraph, which is how a native text view stacks the two:
+    // UIKit paints the selection, and the glyphs go on top of it. The drawn
+    // paragraph passes touches through, so the text view still gets them.
+    UIView *container = _textView.superview;
+    if (container != nil) {
+      [container insertSubview:_selectableTextView belowSubview:_textView];
+    } else {
+      [self addSubview:_selectableTextView];
+    }
 
     _selectionRenderedText = [attributedText copy];
-    _selectionRenderedSize = contentFrame.size;
+    _selectionRenderedSize = drawingFrame.size;
   }
 
-  _selectableTextView.frame = contentFrame;
-  // The text view renders the paragraph, so the drawn copy must stay hidden.
-  _textView.hidden = YES;
+  _selectableTextView.frame = drawingFrame;
 }
 
 - (BOOL)canBecomeFirstResponder
