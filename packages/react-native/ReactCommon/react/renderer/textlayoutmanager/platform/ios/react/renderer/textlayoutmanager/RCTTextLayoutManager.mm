@@ -424,6 +424,22 @@ static NSLineBreakMode RCTNSLineBreakModeFromEllipsizeMode(EllipsizeMode ellipsi
                                                            size:size];
 }
 
+- (CGFloat)_maximumFontSizeInAttributedString:(NSAttributedString *)attributedString
+{
+  __block CGFloat maximumFontSize = 0.0;
+  [attributedString enumerateAttribute:NSFontAttributeName
+                               inRange:NSMakeRange(0, attributedString.length)
+                               options:NSAttributedStringEnumerationLongestEffectiveRangeNotRequired
+                            usingBlock:^(id _Nullable value, NSRange range, BOOL *_Nonnull stop) {
+                              CGFloat fontSize = ((UIFont *)value).pointSize;
+                              if (fontSize > maximumFontSize) {
+                                maximumFontSize = fontSize;
+                              }
+                            }];
+
+  return maximumFontSize;
+}
+
 - (NSTextStorage *)_textStorageAndLayoutManagerWithAttributesString:(NSAttributedString *)attributedString
                                                 paragraphAttributes:(ParagraphAttributes)paragraphAttributes
                                                                size:(CGSize)size
@@ -448,7 +464,7 @@ static NSLineBreakMode RCTNSLineBreakModeFromEllipsizeMode(EllipsizeMode ellipsi
 
   if (paragraphAttributes.adjustsFontSizeToFit) {
     CGFloat minimumFontSize = !isnan(paragraphAttributes.minimumFontSize) ? paragraphAttributes.minimumFontSize : 4.0;
-    CGFloat maximumFontSize = !isnan(paragraphAttributes.maximumFontSize) ? paragraphAttributes.maximumFontSize : 96.0;
+    CGFloat maximumFontSize = [self _maximumFontSizeInAttributedString:attributedString];
     [textStorage scaleFontSizeToFitSize:size minimumFontSize:minimumFontSize maximumFontSize:maximumFontSize];
   }
 
@@ -577,7 +593,7 @@ static NSLineBreakMode RCTNSLineBreakModeFromEllipsizeMode(EllipsizeMode ellipsi
   CGRect usedBounds = [layoutManager usedRectForTextContainer:textContainer];
   CGSize size = usedBounds.size;
 
-  if (textDidWrap) {
+  if (textDidWrap && paragraphAttributes.textWidthMode == TextWidthMode::Auto) {
     size.width = textContainer.size.width;
   }
 

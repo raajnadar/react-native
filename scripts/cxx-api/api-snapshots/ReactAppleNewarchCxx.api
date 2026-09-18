@@ -1028,10 +1028,9 @@ interface RCTDiffClampAnimatedNode : public RCTValueAnimatedNode {
 }
 
 interface RCTDisplayLink : public NSObject {
-  public virtual instancetype init();
+  public virtual instancetype initWithFrameUpdateObserver:(id<RCTFrameUpdateObserver> observer);
   public virtual void addToRunLoop:(NSRunLoop* runLoop);
   public virtual void invalidate();
-  public virtual void registerModuleForFrameUpdates:withModuleHolder:(id<RCTBridgeModule> module, id<RCTDisplayLinkModuleHolder> moduleHolder);
 }
 
 interface RCTDisplayWeakRefreshable : public NSObject {
@@ -1486,15 +1485,12 @@ interface RCTMultipartStreamReader : public NSObject {
 interface RCTMultiplicationAnimatedNode : public RCTValueAnimatedNode {
 }
 
-interface RCTNativeAnimatedModule : public RCTEventEmitter <RCTBridgeModule, RCTValueAnimatedNodeObserver, RCTEventDispatcherObserver, RCTUIManagerObserver, RCTSurfacePresenterObserver> {
-}
-
 interface RCTNativeAnimatedNodesManager : public NSObject {
   public virtual BOOL isNodeManagedByFabric:(NSNumber* tag);
   public virtual NSSet<NSNumber*>* getTagsOfConnectedNodesFrom:andEvent:(NSNumber* tag, NSString* eventName);
-  public virtual _Nonnull instancetype initWithBridge:surfacePresenter:(_Nullable RCTBridge* bridge, id<RCTSurfacePresenterStub> surfacePresenter);
+  public virtual _Nonnull instancetype initWithSurfacePresenter:(id<RCTSurfacePresenterStub> surfacePresenter);
   public virtual void addAnimatedEventToView:eventName:eventMapping:(NSNumber* viewTag, NSString* eventName, NSDictionary<NSString*, id>* eventMapping);
-  public virtual void connectAnimatedNodeToView:viewTag:viewName:(NSNumber* nodeTag, NSNumber* viewTag, _Nullable NSString* viewName);
+  public virtual void connectAnimatedNodeToView:viewTag:(NSNumber* nodeTag, NSNumber* viewTag);
   public virtual void connectAnimatedNodes:childTag:(NSNumber* parentTag, NSNumber* childTag);
   public virtual void createAnimatedNode:config:(NSNumber* tag, NSDictionary<NSString*, id>* config);
   public virtual void disconnectAnimatedNodeFromView:viewTag:(NSNumber* nodeTag, NSNumber* viewTag);
@@ -1586,7 +1582,7 @@ interface RCTPlatform : public NSObject <RCTBridgeModule> {
 }
 
 interface RCTPropsAnimatedNode : public RCTAnimatedNode {
-  public virtual void connectToView:viewName:bridge:surfacePresenter:(NSNumber* viewTag, NSString* viewName, RCTBridge* bridge, id<RCTSurfacePresenterStub> surfacePresenter);
+  public virtual void connectToView:surfacePresenter:(NSNumber* viewTag, id<RCTSurfacePresenterStub> surfacePresenter);
   public virtual void disconnectFromView:(NSNumber* viewTag);
   public virtual void restoreDefaultValues();
 }
@@ -1696,14 +1692,9 @@ interface RCTRootViewFactoryConfiguration : public NSObject {
   public @property (assign) RCTLoadSourceForBridgeBlock loadSourceForBridge;
   public @property (assign) RCTLoadSourceForBridgeWithProgressBlock loadSourceForBridgeWithProgress;
   public @property (assign) RCTSourceURLForBridgeBlock sourceURLForBridge;
-  public @property (assign, readonly) BOOL bridgelessEnabled;
-  public @property (assign, readonly) BOOL fabricEnabled;
-  public @property (assign, readonly) BOOL turboModuleEnabled;
   public @property (weak) id<RCTJSRuntimeConfiguratorProtocol> jsRuntimeConfiguratorDelegate;
   public virtual instancetype initWithBundleURL:newArchEnabled:(NSURL* bundleURL, BOOL newArchEnabled);
-  public virtual instancetype initWithBundleURL:newArchEnabled:turboModuleEnabled:bridgelessEnabled:(NSURL* bundleURL, BOOL newArchEnabled, BOOL turboModuleEnabled, BOOL bridgelessEnabled);
   public virtual instancetype initWithBundleURLBlock:newArchEnabled:(RCTBundleURLBlock bundleURLBlock, BOOL newArchEnabled);
-  public virtual instancetype initWithBundleURLBlock:newArchEnabled:turboModuleEnabled:bridgelessEnabled:(RCTBundleURLBlock bundleURLBlock, BOOL newArchEnabled, BOOL turboModuleEnabled, BOOL bridgelessEnabled);
 }
 
 interface RCTSafeAreaViewComponentView : public RCTViewComponentView {
@@ -1975,7 +1966,7 @@ interface RCTThirdPartyComponentsProvider : public NSObject {
   public virtual static NSDictionary<NSString*, Class<RCTComponentViewProtocol>>* thirdPartyFabricComponents();
 }
 
-interface RCTTiming : public NSObject <RCTBridgeModule, RCTInvalidating, RCTFrameUpdateObserver, RCTInitializing> {
+interface RCTTiming : public NSObject <RCTInvalidating, RCTFrameUpdateObserver, RCTInitializing> {
   public virtual instancetype initWithDelegate:(id<RCTTimingDelegate> delegate);
   public virtual void createTimerForNextFrame:duration:jsSchedulingTime:repeats:(NSNumber* callbackID, NSTimeInterval jsDuration, _Nullable NSDate* jsSchedulingTime, BOOL repeats);
   public virtual void deleteTimer:(double timerID);
@@ -2765,12 +2756,6 @@ protocol RCTDevSettingsInspectable : public NSObject {
   public @property (assign) BOOL isInspectable;
 }
 
-protocol RCTDisplayLinkModuleHolder {
-  public virtual Class moduleClass();
-  public virtual dispatch_queue_t methodQueue();
-  public virtual id<RCTBridgeModule> instance();
-}
-
 protocol RCTDisplayRefreshable {
   public virtual void displayDidRefresh:(CADisplayLink* displayLink);
 }
@@ -3412,6 +3397,7 @@ constexpr char* const facebook::react::TextLayoutManagerKey;
 constexpr facebook::react::HighResDuration facebook::react::DEFAULT_DURATION_THRESHOLD;
 constexpr facebook::react::HighResDuration facebook::react::LONG_TASK_DURATION_THRESHOLD;
 constexpr facebook::react::ReactNativeVersionType facebook::react::ReactNativeVersion;
+constexpr facebook::react::Tag facebook::react::kNoTag;
 constexpr float facebook::react::kDefaultEpsilon;
 constexpr size_t facebook::react::EVENT_BUFFER_SIZE;
 constexpr size_t facebook::react::LONG_TASK_BUFFER_SIZE;
@@ -3828,6 +3814,7 @@ std::string facebook::react::toString(const facebook::react::TextBreakStrategy& 
 std::string facebook::react::toString(const facebook::react::TextDecorationLineType& textDecorationLineType);
 std::string facebook::react::toString(const facebook::react::TextDecorationStyle& textDecorationStyle);
 std::string facebook::react::toString(const facebook::react::TextTransform& textTransform);
+std::string facebook::react::toString(const facebook::react::TextWidthMode& textWidthMode);
 std::string facebook::react::toString(const facebook::react::WritingDirection& writingDirection);
 std::string facebook::react::toString(double doubleValue, char suffix);
 std::string facebook::react::toString(facebook::react::AccessibilityLiveRegion accessibilityLiveRegion);
@@ -3975,6 +3962,7 @@ void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, c
 void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, const facebook::react::RawValue& value, facebook::react::Size& result);
 void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, const facebook::react::RawValue& value, facebook::react::SubmitBehavior& result);
 void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, const facebook::react::RawValue& value, facebook::react::TextAlignmentVertical& result);
+void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, const facebook::react::RawValue& value, facebook::react::TextWidthMode& result);
 void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, const facebook::react::RawValue& value, facebook::react::ValueUnit& result);
 void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, const facebook::react::RawValue& value, facebook::yoga::BoxSizing& result);
 void facebook::react::fromRawValue(const facebook::react::PropsParserContext&, const facebook::react::RawValue& value, facebook::yoga::Style::SizeLength& result);
@@ -5376,6 +5364,7 @@ class facebook::react::LayoutableShadowNode : public facebook::react::ShadowNode
 }
 
 struct facebook::react::LayoutableShadowNode::LayoutInspectingPolicy {
+  public bool clipSpecifiedAncestor;
   public bool enableOverflowClipping;
   public bool includeTransform;
   public bool includeViewportOffset;
@@ -6097,11 +6086,11 @@ class facebook::react::ParagraphAttributes : public facebook::react::DebugString
   public bool includeFontPadding;
   public bool operator==(const facebook::react::ParagraphAttributes& rhs) const;
   public facebook::react::EllipsizeMode ellipsizeMode;
-  public facebook::react::Float maximumFontSize;
   public facebook::react::Float minimumFontScale;
   public facebook::react::Float minimumFontSize;
   public facebook::react::HyphenationFrequency android_hyphenationFrequency;
   public facebook::react::TextBreakStrategy textBreakStrategy;
+  public facebook::react::TextWidthMode textWidthMode;
   public int maximumNumberOfLines;
   public std::optional<facebook::react::TextAlignmentVertical> textAlignVertical;
 }
@@ -8707,6 +8696,11 @@ enum facebook::react::TextTransform {
   None,
   Unset,
   Uppercase,
+}
+
+enum facebook::react::TextWidthMode {
+  Auto,
+  LongestLine,
 }
 
 enum facebook::react::TimerSource {
@@ -15072,6 +15066,7 @@ enum facebook::yoga::Errata : uint32_t {
   AbsolutePositionWithoutInsetsExcludesPadding,
   All,
   Classic,
+  FlexFirstPassUsesRunningTotals,
   MinSizeUndefinedInsteadOfAuto,
   None,
   StretchFlexBasis,

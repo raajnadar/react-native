@@ -4,7 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @generated SignedSource<<b7ef80c2c39c734ae511fe6457b89ce7>>
+ * @generated SignedSource<<7d7547b5f25dbe0d0e6722d2f2bf5baf>>
  */
 
 /**
@@ -101,6 +101,12 @@ public object ReactNativeFeatureFlags {
    */
   @JvmStatic
   public fun enableAccumulatedUpdatesInRawPropsAndroid(): Boolean = accessor.enableAccumulatedUpdatesInRawPropsAndroid()
+
+  /**
+   * When enabled, a View with reduced opacity that contains an elevated descendant is composited offscreen so the elevation shadow fades uniformly instead of rendering as banded per-primitive alpha.
+   */
+  @JvmStatic
+  public fun enableAndroidAutoOffscreenCompositingForElevation(): Boolean = accessor.enableAndroidAutoOffscreenCompositingForElevation()
 
   /**
    * Enables various optimizations throughout the path of measuring text on Android.
@@ -215,6 +221,12 @@ public object ReactNativeFeatureFlags {
    */
   @JvmStatic
   public fun enableImmediateUpdateModeForContentOffsetChanges(): Boolean = accessor.enableImmediateUpdateModeForContentOffsetChanges()
+
+  /**
+   * When enabled, ReactNativeElement and ReadOnlyText expose the public EventTarget API (addEventListener, removeEventListener, dispatchEvent). When disabled, those methods are removed from those final classes.
+   */
+  @JvmStatic
+  public fun enableImperativeEvents(): Boolean = accessor.enableImperativeEvents()
 
   /**
    * Enable ref.focus() and ref.blur() for all views, not just TextInput.

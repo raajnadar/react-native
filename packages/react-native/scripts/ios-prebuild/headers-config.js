@@ -26,6 +26,19 @@ const PodspecExceptions /*: {[key: string]: PodSpecConfiguration} */ = {
     headerDir: 'jsi',
     excludePatterns: ['**/test/*'],
   },
+  'ReactCommon/react/bridging/React-bridging.podspec': {
+    name: 'React-bridging',
+    headerPatterns: ['**/*.h'],
+    excludePatterns: ['React/**', 'tests/**'],
+    headerDir: 'react/bridging',
+    subSpecs: [
+      {
+        name: 'bridgingUmbrella',
+        headerPatterns: ['React/*.h'],
+        headerDir: 'React',
+      },
+    ],
+  },
   'ReactCommon/hermes/React-hermes.podspec': {
     name: 'React-hermes',
     headerPatterns: [
@@ -77,14 +90,29 @@ const PodspecExceptions /*: {[key: string]: PodSpecConfiguration} */ = {
       {
         name: 'core',
         headerPatterns: ['react/renderer/core/**/*.h'],
-        excludePatterns: ['react/renderer/core/tests'],
+        excludePatterns: [
+          'react/renderer/core/tests',
+          'react/renderer/core/React',
+        ],
         headerDir: 'react/renderer/core',
+      },
+
+      {
+        name: 'coreUmbrella',
+        headerPatterns: ['react/renderer/core/React/*.h'],
+        headerDir: 'React',
       },
 
       {
         name: 'componentregistry',
         headerPatterns: ['react/renderer/componentregistry/*.h'],
         headerDir: 'react/renderer/componentregistry',
+      },
+
+      {
+        name: 'componentregistryUmbrella',
+        headerPatterns: ['react/renderer/componentregistry/React/*.h'],
+        headerDir: 'React',
       },
 
       {
@@ -159,6 +187,12 @@ const PodspecExceptions /*: {[key: string]: PodSpecConfiguration} */ = {
         name: 'imagemanager',
         headerPatterns: ['react/renderer/imagemanager/*.h'],
         headerDir: 'react/renderer/imagemanager',
+      },
+
+      {
+        name: 'imagemanagerUmbrella',
+        headerPatterns: ['react/renderer/imagemanager/React/*.h'],
+        headerDir: 'React',
       },
 
       {
@@ -247,13 +281,25 @@ const PodspecExceptions /*: {[key: string]: PodSpecConfiguration} */ = {
       {
         name: 'bridging',
         headerPatterns: ['react/bridging/**/*.h'],
-        excludePatterns: ['react/bridging/tests/**'],
+        excludePatterns: ['react/bridging/React/**', 'react/bridging/tests/**'],
         headerDir: 'react/bridging',
+        subSpecs: [
+          {
+            name: 'bridgingUmbrella',
+            headerPatterns: ['react/bridging/React/*.h'],
+            headerDir: 'React',
+          },
+        ],
       },
       {
         name: 'core',
         headerPatterns: ['react/nativemodule/core/ReactCommon/**/*.h'],
         headerDir: 'ReactCommon',
+      },
+      {
+        name: 'coreUmbrella',
+        headerPatterns: ['react/nativemodule/core/React/*.h'],
+        headerDir: 'React',
       },
     ],
   },
@@ -455,6 +501,22 @@ const PodspecExceptions /*: {[key: string]: PodSpecConfiguration} */ = {
       },
     ],
   },
+  'ReactCommon/React-FabricImage.podspec': {
+    name: 'React-FabricImage',
+    headerPatterns: ['react/renderer/components/image/**/*.h'],
+    excludePatterns: [
+      'react/renderer/components/image/tests',
+      'react/renderer/components/image/React',
+    ],
+    headerDir: 'react/renderer/components/image',
+    subSpecs: [
+      {
+        name: 'imageUmbrella',
+        headerPatterns: ['react/renderer/components/image/React/*.h'],
+        headerDir: 'React',
+      },
+    ],
+  },
   'ReactCommon/React-Mapbuffer.podspec': {
     name: 'React-Mapbuffer',
     headerPatterns: ['react/renderer/mapbuffer/**/*.h'],
@@ -597,6 +659,76 @@ const PodspecExceptions /*: {[key: string]: PodSpecConfiguration} */ = {
       },
       {
         name: 'cssUmbrella',
+        headerPatterns: ['React/*.h'],
+        headerDir: 'React',
+      },
+    ],
+  },
+  'ReactCommon/react/utils/React-utils.podspec': {
+    name: 'React-utils',
+    headerPatterns: [],
+    headerDir: '',
+    subSpecs: [
+      {
+        name: 'utils',
+        headerPatterns: ['*.h', 'platform/ios/**/*.h'],
+        excludePatterns: ['tests', 'React'],
+        headerDir: 'react/utils',
+      },
+      {
+        name: 'utilsUmbrella',
+        headerPatterns: ['React/*.h'],
+        headerDir: 'React',
+      },
+    ],
+  },
+  'ReactCommon/cxxreact/React-cxxreact.podspec': {
+    name: 'React-cxxreact',
+    headerPatterns: [],
+    headerDir: '',
+    subSpecs: [
+      {
+        name: 'cxxreact',
+        headerPatterns: ['*.h'],
+        headerDir: 'cxxreact',
+      },
+      {
+        name: 'cxxreactUmbrella',
+        headerPatterns: ['React/*.h'],
+        headerDir: 'React',
+      },
+    ],
+  },
+  'ReactCommon/runtimeexecutor/React-runtimeexecutor.podspec': {
+    name: 'React-runtimeexecutor',
+    headerPatterns: [],
+    headerDir: '',
+    subSpecs: [
+      {
+        name: 'runtimeexecutor',
+        headerPatterns: ['ReactCommon/*.h', 'platform/ios/**/*.h'],
+        excludePatterns: ['React'],
+        headerDir: 'ReactCommon',
+      },
+      {
+        name: 'runtimeexecutorUmbrella',
+        headerPatterns: ['React/*.h'],
+        headerDir: 'React',
+      },
+    ],
+  },
+  'ReactCommon/react/renderer/debug/React-rendererdebug.podspec': {
+    name: 'React-rendererdebug',
+    headerPatterns: [],
+    headerDir: '',
+    subSpecs: [
+      {
+        name: 'debug',
+        headerPatterns: ['*.h'],
+        headerDir: 'react/renderer/debug',
+      },
+      {
+        name: 'debugUmbrella',
         headerPatterns: ['React/*.h'],
         headerDir: 'React',
       },
