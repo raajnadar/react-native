@@ -182,7 +182,6 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
 
   _dismissSelectionRecognizer =
       [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(_handleTapToDismissSelection:)];
-  // The tap still reaches the component the user tapped.
   _dismissSelectionRecognizer.cancelsTouchesInView = NO;
   _dismissSelectionRecognizer.delaysTouchesBegan = NO;
   _dismissSelectionRecognizer.delaysTouchesEnded = NO;
@@ -253,7 +252,6 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
   RCTParagraphTextView *_textView;
   CGRect _textLayoutFrame;
 #if !TARGET_OS_TV
-  // Selection state. `_selectableTextView` is non-nil only while `selectable` is set.
   RCTSelectableTextView *_selectableTextView;
   RCTTextLayoutManager *_selectionLayoutManager;
   NSAttributedString *_selectionRenderedText;
@@ -563,7 +561,6 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
 - (void)disableContextMenu
 {
   [self removeSelectableTextView];
-  // Nothing else uses it while the paragraph is not selectable.
   _selectionLayoutManager = nil;
 }
 
@@ -576,9 +573,8 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
 }
 
 /*
- * Builds or repositions the selectable text view. A `UITextView` binds its text
- * container at initialisation, so it is rebuilt only when the text or the
- * available size actually changes.
+ * A `UITextView` binds its text container at initialisation, so the selectable
+ * text view is rebuilt only when the text or the available size changes.
  */
 - (void)updateSelectableTextViewWithDrawingFrame:(CGRect)drawingFrame
 {
@@ -616,8 +612,6 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
   }
 
   _selectableTextView.frame = drawingFrame;
-  // Copy reads the range from the painted string, not from the stripped copy
-  // the text view lays out.
   _selectableTextView.sourceAttributedText = attributedText;
 }
 
