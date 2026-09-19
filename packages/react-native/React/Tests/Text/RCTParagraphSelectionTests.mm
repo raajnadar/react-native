@@ -10,10 +10,14 @@
 
 #import <React/RCTParagraphComponentView.h>
 
+#import <React/RCTTouchableComponentViewProtocol.h>
 #import <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #import <react/renderer/components/text/ParagraphProps.h>
 #import <react/renderer/components/text/ParagraphShadowNode.h>
 #import <react/renderer/components/text/ParagraphState.h>
+#import <react/renderer/components/text/TextShadowNode.h>
+#import <react/renderer/components/view/TouchEventEmitter.h>
+#import <react/renderer/core/EventDispatcher.h>
 #import <react/renderer/graphics/Color.h>
 #import <react/renderer/textlayoutmanager/TextLayoutManager.h>
 #import <react/utils/ContextContainer.h>
@@ -47,15 +51,72 @@ using namespace facebook::react;
  */
 - (AttributedString)decoratedAttributedString
 {
+  return [self decoratedAttributedStringHighlighted:NO];
+}
+
+- (AttributedString)decoratedAttributedStringHighlighted:(BOOL)highlighted
+{
   auto textAttributes = TextAttributes{};
   textAttributes.foregroundColor = colorFromRGBA(255, 0, 0, 255);
   textAttributes.fontSize = 20;
   textAttributes.textDecorationLineType = TextDecorationLineType::UnderlineStrikethrough;
   textAttributes.textDecorationStyle = TextDecorationStyle::Wavy;
+  if (highlighted) {
+    textAttributes.isHighlighted = true;
+  }
 
   auto fragment = AttributedString::Fragment{};
   fragment.string = "Selectable wavy decoration";
   fragment.textAttributes = textAttributes;
+
+  auto attributedString = AttributedString{};
+  attributedString.appendFragment(std::move(fragment));
+  return attributedString;
+}
+
+/*
+ * A paragraph whose single fragment carries a touch emitter, which is how a
+ * nested pressable <Text> reaches `touchEventEmitterAtPoint:`.
+ */
+- (AttributedString)attributedStringWithEventEmitter:(std::shared_ptr<TouchEventEmitter>)eventEmitter
+{
+  auto textAttributes = TextAttributes{};
+  textAttributes.fontSize = 20;
+
+  auto fragment = AttributedString::Fragment{};
+  fragment.string = "Selectable wavy decoration";
+  fragment.textAttributes = textAttributes;
+  fragment.parentShadowView.eventEmitter = eventEmitter;
+  // The emitter only reaches the attributed string when the fragment names a
+  // component, which is what marks it as a nested <Text> rather than raw text.
+  fragment.parentShadowView.componentHandle = TextShadowNode::Handle();
+
+  auto attributedString = AttributedString{};
+  attributedString.appendFragment(std::move(fragment));
+  return attributedString;
+}
+
+- (RCTParagraphComponentView *)paragraphViewWithEventEmitter:(std::shared_ptr<TouchEventEmitter>)eventEmitter
+{
+  RCTParagraphComponentView *view = [RCTParagraphComponentView new];
+  view.frame = CGRectMake(0, 0, 320, 100);
+
+  [view updateProps:[self propsWithSelectable:YES] oldProps:nullptr];
+  [view updateState:[self stateWithAttributedString:[self attributedStringWithEventEmitter:eventEmitter]] oldState:nil];
+
+  auto layoutMetrics = LayoutMetrics{};
+  layoutMetrics.frame = facebook::react::Rect{facebook::react::Point{0, 0}, facebook::react::Size{320, 100}};
+  [view updateLayoutMetrics:layoutMetrics oldLayoutMetrics:{}];
+
+  [view layoutIfNeeded];
+  return view;
+}
+
+- (AttributedString)attributedStringWithText:(std::string)text
+{
+  auto fragment = AttributedString::Fragment{};
+  fragment.string = std::move(text);
+  fragment.textAttributes = TextAttributes{};
 
   auto attributedString = AttributedString{};
   attributedString.appendFragment(std::move(fragment));
@@ -289,6 +350,85 @@ using namespace facebook::react;
   [view prepareForRecycle];
 
   XCTAssertNil([self selectionTextViewIn:view], @"A recycled paragraph must not keep a selection text view.");
+}
+
+#pragma mark - A press must not rebuild the selection
+
+/*
+ * Pressing a nested pressable <Text> paints a highlight, which changes the
+ * painted string but not the layout. Rebuilding the text view in the middle of
+ * that touch destroys the long press that UIKit has already started, and the
+ * paragraph never selects. Only a layout change may rebuild it.
+ */
+- (void)testHighlightOnlyUpdateKeepsTheSameSelectionTextView
+{
+  RCTParagraphComponentView *view = [self paragraphViewSelectable:YES];
+  UITextView *before = [self selectionTextViewIn:view];
+  XCTAssertNotNil(before);
+
+  [view updateState:[self stateWithAttributedString:[self decoratedAttributedStringHighlighted:YES]] oldState:nil];
+  [view layoutIfNeeded];
+
+  XCTAssertEqual(
+      [self selectionTextViewIn:view], before, @"A pressed highlight must not rebuild the selection text view.");
+}
+
+/*
+ * The cache must not go too far the other way: different text lays out
+ * differently, so it has to produce a new text view.
+ */
+- (void)testTextChangeRebuildsTheSelectionTextView
+{
+  RCTParagraphComponentView *view = [self paragraphViewSelectable:YES];
+  UITextView *before = [self selectionTextViewIn:view];
+  XCTAssertNotNil(before);
+
+  [view updateState:[self stateWithAttributedString:[self attributedStringWithText:"A different paragraph"]]
+           oldState:nil];
+  [view layoutIfNeeded];
+
+  XCTAssertNotEqual([self selectionTextViewIn:view], before, @"New text must rebuild the selection text view.");
+}
+
+#pragma mark - A showing selection owns the touch
+
+/*
+ * A drag of a selection handle starts on the glyphs the handle sits on, which
+ * is often a pressable <Text>. Delivering that touch presses the link, so
+ * adjusting a selection follows it. While a selection shows, the paragraph
+ * must hand out no event emitter at all.
+ */
+- (void)testShowingSelectionGivesNoEventEmitter
+{
+  auto eventEmitter = std::make_shared<TouchEventEmitter>(nullptr, EventDispatcher::Weak{});
+  RCTParagraphComponentView *view = [self paragraphViewWithEventEmitter:eventEmitter];
+  UITextView *selectionTextView = [self selectionTextViewIn:view];
+  XCTAssertNotNil(selectionTextView);
+
+  selectionTextView.selectedRange = NSMakeRange(0, 5);
+
+  XCTAssertTrue(
+      [(id<RCTTouchableComponentViewProtocol>)view touchEventEmitterAtPoint:CGPointMake(100, 10)] == nullptr,
+      @"A touch that lands while a selection shows must not press the text under it.");
+}
+
+/*
+ * The guard must not reach an ordinary tap. With nothing selected the pressable
+ * fragment still gets its press.
+ */
+- (void)testWithoutASelectionThePressStillGoesThrough
+{
+  auto eventEmitter = std::make_shared<TouchEventEmitter>(nullptr, EventDispatcher::Weak{});
+  RCTParagraphComponentView *view = [self paragraphViewWithEventEmitter:eventEmitter];
+  UITextView *selectionTextView = [self selectionTextViewIn:view];
+  XCTAssertNotNil(selectionTextView);
+
+  selectionTextView.selectedRange = NSMakeRange(0, 0);
+
+  XCTAssertEqual(
+      (const void *)[(id<RCTTouchableComponentViewProtocol>)view touchEventEmitterAtPoint:CGPointMake(100, 10)].get(),
+      (const void *)eventEmitter.get(),
+      @"With nothing selected, a press must still reach the pressable text.");
 }
 
 #pragma mark - Accessibility

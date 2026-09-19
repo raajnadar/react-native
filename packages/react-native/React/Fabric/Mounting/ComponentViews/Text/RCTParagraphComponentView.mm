@@ -20,6 +20,8 @@
 #import <react/renderer/textlayoutmanager/TextLayoutManager.h>
 #import <react/utils/ManagedObjectWrapper.h>
 
+#import <React/RCTSurfaceTouchHandler.h>
+
 #import "RCTConversions.h"
 #import "RCTFabricComponentsPlugins.h"
 
@@ -71,6 +73,7 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
   [unpainted removeAttribute:NSUnderlineStyleAttributeName range:range];
   [unpainted removeAttribute:NSStrikethroughStyleAttributeName range:range];
   [unpainted removeAttribute:NSShadowAttributeName range:range];
+  [unpainted removeAttribute:RCTAttributedStringIsHighlightedAttributeName range:range];
   [unpainted endEditing];
 
   return unpainted;
@@ -85,7 +88,7 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
  * construction rather than by coincidence. UIKit performs the selection; it
  * never performs the layout, and it never paints the text.
  */
-@interface RCTSelectableTextView : UITextView
+@interface RCTSelectableTextView : UITextView <UITextViewDelegate>
 
 /*
  * The paragraph as it is painted, before `RCTUnpaintedAttributedString` strips
@@ -100,6 +103,7 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
 
 @implementation RCTSelectableTextView {
   UITapGestureRecognizer *_dismissSelectionRecognizer;
+  BOOL _didCancelTouchesForSelection;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame textContainer:(NSTextContainer *)textContainer
@@ -121,8 +125,45 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
     // `RCTParagraphComponentAccessibilityProvider`. Keeping the text view out of
     // the accessibility tree leaves that contract exactly as it was.
     self.accessibilityElementsHidden = YES;
+    self.delegate = self;
   }
   return self;
+}
+
+#pragma mark - Giving the touch to the selection
+
+/*
+ * The selection gesture and `RCTSurfaceTouchHandler` track the same touch, and
+ * neither cancels the other. `RCTSurfaceTouchHandler` resolves its event
+ * emitter when the finger lands, before any selection exists, so lifting the
+ * finger after a long press presses the <Text> under it. Selecting a link
+ * follows the link.
+ *
+ * Once a selection exists the touch belongs to the selection, so the other
+ * recognizer has to let go. Disabling a recognizer cancels what it tracks,
+ * which reaches React Native as a cancelled touch and stops the press.
+ */
+- (void)textViewDidChangeSelection:(UITextView *)textView
+{
+  BOOL hasSelection = textView.selectedRange.length > 0;
+  if (hasSelection && !_didCancelTouchesForSelection) {
+    _didCancelTouchesForSelection = YES;
+    [self _cancelSurfaceTouches];
+  } else if (!hasSelection) {
+    _didCancelTouchesForSelection = NO;
+  }
+}
+
+- (void)_cancelSurfaceTouches
+{
+  for (UIView *ancestor = self.superview; ancestor != nil; ancestor = ancestor.superview) {
+    for (UIGestureRecognizer *recognizer in ancestor.gestureRecognizers) {
+      if ([recognizer isKindOfClass:[RCTSurfaceTouchHandler class]] && recognizer.isEnabled) {
+        recognizer.enabled = NO;
+        recognizer.enabled = YES;
+      }
+    }
+  }
 }
 
 #pragma mark - Dismissing the selection
@@ -332,9 +373,6 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
 {
   _textView.state = std::static_pointer_cast<const ParagraphShadowNode::ConcreteState>(state);
   [_textView setNeedsDisplay];
-#if !TARGET_OS_TV
-  _selectionRenderedText = nil;
-#endif
   [self setNeedsLayout];
 
   // If the attributed string has changed, we need to notify the accessibility system that something changed,
@@ -511,6 +549,16 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
 
 - (SharedTouchEventEmitter)touchEventEmitterAtPoint:(CGPoint)point
 {
+#if !TARGET_OS_TV
+  // A drag of a selection handle starts on the glyphs the handle sits on, and
+  // that is often a pressable <Text>. Adjusting a selection must not press it.
+  // `resignFirstResponder` empties the range, so an empty range means no
+  // selection is on screen and an ordinary press goes through.
+  if (_selectableTextView.selectedRange.length > 0) {
+    return nullptr;
+  }
+#endif
+
   const auto &state = _textView.state;
   if (!state) {
     return _eventEmitter;
@@ -584,15 +632,19 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
     return;
   }
 
-  BOOL needsRebuild = _selectableTextView == nil ||
-      ![attributedText isEqualToAttributedString:_selectionRenderedText] ||
+  // The layout string decides the rebuild, and the painted string does not. A
+  // press on a nested pressable <Text> paints a highlight, which changes the
+  // painted string. A rebuild in the middle of that touch destroys the text
+  // view before its long press starts, so the paragraph never selects.
+  NSAttributedString *layoutText = RCTUnpaintedAttributedString(attributedText);
+
+  BOOL needsRebuild = _selectableTextView == nil || ![layoutText isEqualToAttributedString:_selectionRenderedText] ||
       !CGSizeEqualToSize(drawingFrame.size, _selectionRenderedSize);
 
   if (needsRebuild) {
-    NSTextStorage *textStorage =
-        [_selectionLayoutManager textStorageForNSAttributedString:RCTUnpaintedAttributedString(attributedText)
-                                              paragraphAttributes:_paragraphAttributes
-                                                             size:drawingFrame.size];
+    NSTextStorage *textStorage = [_selectionLayoutManager textStorageForNSAttributedString:layoutText
+                                                                       paragraphAttributes:_paragraphAttributes
+                                                                                      size:drawingFrame.size];
     NSTextContainer *textContainer = textStorage.layoutManagers.firstObject.textContainers.firstObject;
 
     [_selectableTextView removeFromSuperview];
@@ -607,7 +659,7 @@ static NSAttributedString *RCTUnpaintedAttributedString(NSAttributedString *attr
       [self addSubview:_selectableTextView];
     }
 
-    _selectionRenderedText = [attributedText copy];
+    _selectionRenderedText = [layoutText copy];
     _selectionRenderedSize = drawingFrame.size;
   }
 
